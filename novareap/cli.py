@@ -124,15 +124,6 @@ class Config:
     tidal_quality:       str    = "master"        # low | high | lossless | master
     youtube_quality:     str    = "320"           # 128 | 192 | 256 | 320
     concurrent_downloads: int   = 3
-
-@dataclass
-class Config:
-    download_dir:        Path   = field(default_factory=lambda: DEFAULT_DOWNLOAD_DIR)
-    session_file:        Path   = field(default_factory=lambda: DEFAULT_SESSION_FILE)
-    spotify_client_id:   str    = ""
-    spotify_client_secret: str  = ""
-    tidal_quality:       str    = "master"        # low | high | lossless | master
-    concurrent_downloads: int   = 3
     retry_attempts:      int    = 3
     retry_delay:         float  = 2.0             # seconds, doubles each retry
     skip_existing:       bool   = True
@@ -284,6 +275,13 @@ def sanitize_filename(name: str) -> str:
     name = re.sub(r'[\\/*?:"<>|]', "_", name)
     name = re.sub(r"\s+", " ", name).strip()
     return name[:200]
+
+
+def _truncate(s: str, max_len: int = 30) -> str:
+    """Truncate *s* to at most *max_len* characters, adding '…' when trimmed."""
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1] + "…"
 
 
 def sniff_audio_extension(path: Path) -> Optional[str]:
@@ -776,13 +774,13 @@ def _pick_tidal_quality(*names):
 
 
 TIDAL_QUALITY_ALIASES = {
-    "low": ("low_96k", "low"),
-    "high": ("low_320k", "high"),
-    "lossless": ("lossless", "high_lossless", "high"),
-    "master": ("hi_res_lossless", "hi_res", "master", "high_lossless", "lossless", "high"),
-    "max": ("hi_res_lossless", "hi_res", "master", "high_lossless", "lossless", "high"),
-    "hires": ("hi_res_lossless", "hi_res", "master", "high_lossless", "lossless", "high"),
-    "hi_res": ("hi_res_lossless", "hi_res", "master", "high_lossless", "lossless", "high"),
+    "low":      ("low_96k",),
+    "high":     ("low_320k",),
+    "lossless": ("high_lossless",),
+    "master":   ("hi_res_lossless",),
+    "max":      ("hi_res_lossless",),
+    "hires":    ("hi_res_lossless",),
+    "hi_res":   ("hi_res_lossless",),
 }
 
 
@@ -897,10 +895,8 @@ class TidalClient:
                 return 4
             if "hi_res" in n or n in ("master", "max", "hires"):
                 return 3
-            if "lossless" in n:
+            if "lossless" in n or "high" in n:
                 return 2
-            if "high" in n:
-                return 1
             if "low" in n:
                 return 0
             return -1
@@ -949,17 +945,42 @@ class TidalClient:
 
     def _login_oauth(self):
         console.print("\n[info]Tidal login required.[/info]")
+
+        # PKCE is the ONLY way to unlock lossless / hi-res streams.
+        # Standard OAuth is capped at 320 kbps AAC regardless of what
+        # quality tier is requested.
+        use_pkce = (
+            _is_lossless_quality(self.cfg.tidal_quality)
+            and hasattr(self.session, "login_pkce")
+        )
+
         try:
-            login, future = self.session.login_oauth()
-            console.print(Panel(
-                f"[bold]Open this URL in your browser:[/bold]\n\n"
-                f"[link={login.verification_uri_complete}]{login.verification_uri_complete}[/link]\n\n"
-                f"[muted]Then press Enter here.[/muted]",
-                title="Tidal OAuth",
-                border_style="cyan",
-            ))
-            input()
-            future.result()
+            if use_pkce:
+                console.print(Panel(
+                    "[bold]PKCE login is required for lossless / hi-res quality.[/bold]\n\n"
+                    "1. A URL will appear below — open it in your browser.\n"
+                    "2. Log in to Tidal normally.\n"
+                    "3. You will be redirected to an [bold cyan]'Oops'[/bold cyan] page — "
+                    "[bold]this is expected![/bold]\n"
+                    "4. Copy the [bold]full URL[/bold] from that 'Oops' page.\n"
+                    "5. Paste it below and press Enter.",
+                    title="Tidal PKCE Auth",
+                    border_style="cyan",
+                ))
+                self.session.login_pkce(
+                    fn_print=lambda text: console.print(f"  [muted]{text}[/muted]")
+                )
+            else:
+                login, future = self.session.login_oauth()
+                console.print(Panel(
+                    f"[bold]Open this URL in your browser:[/bold]\n\n"
+                    f"[link={login.verification_uri_complete}]{login.verification_uri_complete}[/link]\n\n"
+                    f"[muted]Then press Enter here.[/muted]",
+                    title="Tidal OAuth",
+                    border_style="cyan",
+                ))
+                input()
+                future.result()
 
             if hasattr(self.session, "check_login") and not self.session.check_login():
                 console.print("[error]Login failed — session invalid.[/error]")
@@ -1099,12 +1120,24 @@ class TidalClient:
 
         if not urls:
             return None
+
+        # The DASH manifest's get_codecs() often reports "mp4a.40.2" even
+        # when the actual audio payload is FLAC (Tidal wraps lossless FLAC
+        # inside an MP4/DASH container). Derive the real codec from the
+        # stream's audio_quality attribute which is always truthful.
+        stream_quality = str(getattr(stream, "audio_quality", "") or "").upper()
+        manifest_codec = self._codec_from_manifest(manifest)
+
+        if "LOSSLESS" in stream_quality or "HI_RES" in stream_quality:
+            codec = "FLAC"
+        else:
+            codec = manifest_codec
+
         ext = self._extension_from_manifest(manifest) or f".{self._extension()}"
-        codec = self._codec_from_manifest(manifest)
         return TidalStreamSource(
             urls=urls,
             extension=ext,
-            quality=str(getattr(stream, "audio_quality", "") or ""),
+            quality=stream_quality,
             codec=codec,
             bit_depth=int(getattr(stream, "bit_depth", 0) or 0),
             sample_rate=int(getattr(stream, "sample_rate", 0) or 0),
@@ -1122,62 +1155,73 @@ class TidalClient:
         )
 
     def _get_stream_source(self, track) -> Optional[TidalStreamSource]:
-        """Try the configured tier, then walk down through Tidal's tiers
-        before giving up. Tidal happily serves AAC for tracks that have no
-        lossless master, and AAC from Tidal is still better than YouTube,
-        so we exhaust Tidal completely before the caller falls back.
+        """Try the user's requested quality, then walk *down* through every
+        lower tier before giving up.  This guarantees we always get the
+        highest quality Tidal can actually serve for this track.
+
+        tidalapi 0.8.11 Quality enum members (descending):
+            hi_res_lossless  — 24-bit FLAC / MQA (up to 192 kHz)
+            high_lossless    — 16-bit 44.1 kHz FLAC (CD quality)
+            low_320k         — 320 kbps AAC
+            low_96k          — 96 kbps AAC
         """
-        # First attempt at whatever the session is currently configured for.
-        source = self._get_manifest_stream_source(track)
-        if source:
-            return source
+        # Ordered from best to worst — every value that exists in this
+        # install of tidalapi.
+        _ALL_TIERS = ["hi_res_lossless", "high_lossless", "low_320k", "low_96k"]
 
-        # Walk tiers from current down to "high". Skip tiers we've already
-        # tried (the current one) and tiers above it (no point asking for
-        # hi-res after master failed).
-        tier_order = ["master", "lossless", "high", "low"]
+        # Map the user-facing config name to the starting position in the
+        # ladder.  Anything at or below that position will be attempted.
+        _START_FOR = {
+            "master":   0,  # start at hi_res_lossless
+            "max":      0,
+            "hires":    0,
+            "hi_res":   0,
+            "lossless": 1,  # start at high_lossless (16-bit FLAC)
+            "high":     2,  # start at low_320k
+            "low":      3,  # start at low_96k
+        }
+
         current = _normalize_tidal_quality(self.cfg.tidal_quality)
-        try:
-            start = tier_order.index(current)
-        except ValueError:
-            start = 0
+        start = _START_FOR.get(current, 0)
 
+        # Build the list of concrete enum values to try, skipping any that
+        # this tidalapi version doesn't expose.
+        enums_to_try = []
+        for name in _ALL_TIERS[start:]:
+            q = _pick_tidal_quality(name)
+            if q is not None:
+                enums_to_try.append(q)
+
+        # Snapshot the session's current quality so we can restore it.
         original_quality = None
         try:
             if hasattr(self.session, "config") and self.session.config is not None:
                 original_quality = getattr(self.session.config, "quality", None)
         except Exception:
-            original_quality = None
+            pass
 
-        for tier in tier_order[start + 1:]:
-            new_quality = _tidal_quality_for(tier)
-            if new_quality is None:
-                continue
+        def _restore():
+            if original_quality is not None:
+                try:
+                    self.session.config.quality = original_quality
+                except Exception:
+                    pass
+
+        # Walk the ladder from the user's preferred tier downward.
+        for q in enums_to_try:
             try:
                 if hasattr(self.session, "config") and self.session.config is not None:
-                    self.session.config.quality = new_quality
+                    self.session.config.quality = q
             except Exception as e:
-                log.debug(f"Could not switch session to {tier}: {e}")
+                log.debug(f"Could not switch session to quality {q}: {e}")
                 continue
-            log.debug(f"Retrying Tidal stream at tier '{tier}'.")
+
             source = self._get_manifest_stream_source(track)
             if source:
-                # Restore original session quality so the next track starts
-                # from the user's preferred tier again.
-                if original_quality is not None:
-                    try:
-                        self.session.config.quality = original_quality
-                    except Exception:
-                        pass
+                _restore()
                 return source
 
-        # Restore original session quality before falling back to direct URL.
-        if original_quality is not None:
-            try:
-                self.session.config.quality = original_quality
-            except Exception:
-                pass
-
+        _restore()
         return self._get_direct_stream_source(track)
 
     # --- Download ----------------------------------------------------------
@@ -1228,7 +1272,7 @@ class TidalClient:
             existing = self._existing_audio_download(dest, stem) if self.cfg.skip_existing else None
             if existing:
                 self._tag_if_enabled(existing, info)
-                progress.update(task, description=f"[muted]Skipped  {info.artist} - {info.title}[/muted]")
+                progress.update(task, description=f"[muted]Skipped  {info.artist} - {_truncate(info.title)}[/muted]")
                 return DownloadResult(track=info, success=True, path=existing, source="skipped")
             return DownloadResult(track=info, success=False, error="No stream URL available")
 
@@ -1240,14 +1284,14 @@ class TidalClient:
 
         if self.cfg.skip_existing and path.exists() and path.stat().st_size > 0:
             self._tag_if_enabled(path, info)
-            progress.update(task, description=f"[muted]Skipped  {info.artist} - {info.title}[/muted]")
+            progress.update(task, description=f"[muted]Skipped  {info.artist} - {_truncate(info.title)}[/muted]")
             return DownloadResult(track=info, success=True, path=path, source="skipped")
 
         if self.cfg.skip_existing:
             existing = self._existing_audio_download(dest, stem)
             if existing:
                 self._tag_if_enabled(existing, info)
-                progress.update(task, description=f"[muted]Skipped  {info.artist} - {info.title}[/muted]")
+                progress.update(task, description=f"[muted]Skipped  {info.artist} - {_truncate(info.title)}[/muted]")
                 return DownloadResult(track=info, success=True, path=existing, source="skipped")
 
         audio_info_list = []
@@ -1261,7 +1305,7 @@ class TidalClient:
         audio_info_str = " ".join(audio_info_list)
         info.audio_info = audio_info_str
 
-        desc = f"[source]Tidal[/source] [track]{info.title}[/track] [muted]·[/muted] [artist]{info.artist}[/artist]"
+        desc = f"[source]Tidal[/source] [track]{_truncate(info.title)}[/track] [muted]·[/muted] [artist]{info.artist}[/artist]"
         if audio_info_str:
             desc += f" [muted]·[/muted] [quality]{audio_info_str}[/quality]"
 
@@ -1641,13 +1685,13 @@ class YouTubeDownloader:
 
         existing = self._find_audio_file(dest, filename)
         if self.cfg.skip_existing and existing and existing.stat().st_size > 0:
-            progress.update(task, description=f"[muted]Skipped  {info.artist} - {info.title}[/muted]")
+            progress.update(task, description=f"[muted]Skipped  {info.artist} - {_truncate(info.title)}[/muted]")
             return DownloadResult(track=info, success=True, path=existing, source="skipped")
 
         progress.update(
             task,
             description=(
-                f"[source]{source_label}[/source] [track]{info.title}[/track] "
+                f"[source]{source_label}[/source] [track]{_truncate(info.title)}[/track] "
                 f"[muted]-[/muted] [artist]{info.artist}[/artist]"
             ),
         )
@@ -1891,7 +1935,7 @@ class NovaReap:
                 status = "[error]FAIL[/error]"
             table.add_row(
                 status,
-                r.track.title,
+                _truncate(r.track.title),
                 r.track.artist,
                 r.source if r.success else r.error[:40],
             )

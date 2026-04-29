@@ -20,3 +20,9 @@ __pycache__/
 
 # Project specific
 *.remux.mp4
+
+# Packaging / Distribution
+*.egg-info/
+dist/
+build/
+*.egg
