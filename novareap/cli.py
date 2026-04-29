@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 """
-NovaReap - A high-quality music downloader for Tidal, Spotify, and Apple Music.
-
-    Supports direct master/AAC download from Tidal (track, album, playlist),
-Spotify URL resolution with Spotify-first fallback matching, and Apple Music
-metadata scraping with YouTube as the fallback audio source.
+NovaReap - A simple music downloader for Tidal, Spotify, and Apple Music.
 """
 
 from __future__ import annotations
@@ -745,7 +741,7 @@ class MetadataTagger:
 
 
 class PostDownloadMetadataScript:
-    """Runs immediately after a download and appends metadata when enabled."""
+    """This will run immediately after a download and append metadata when enabled."""
 
     @staticmethod
     def append(path: Path, info: TrackInfo, enabled: bool = True):
@@ -1943,7 +1939,7 @@ class NovaReap:
         console.print()
         console.print(table)
         console.print(
-            f"\n[success]{len(ok)} downloaded[/success]  "
+            f"\n[cyan]{len(ok)}[/cyan][success] downloaded[/success]  "
             f"[muted]{len(skipped)} skipped  [/muted]"
             f"{'[error]' + str(len(failed)) + ' failed[/error]' if failed else ''}"
         )
@@ -2017,7 +2013,7 @@ def configure(spotify_id, spotify_secret, output, quality, concurrent):
     if not output:
         output = click.prompt("Download directory", default=str(cfg.download_dir))
 
-    quality = click.prompt("Tidal quality [low/high/master]", default=cfg.tidal_quality)
+    quality = click.prompt("Select [red](Tidal)[/red] quality [low/high/master]", default=cfg.tidal_quality)
     concurrent = click.prompt("Concurrent downloads", default=cfg.concurrent_downloads)
 
     cfg.spotify_client_id = spotify_id
@@ -2036,16 +2032,16 @@ def configure(spotify_id, spotify_secret, output, quality, concurrent):
 @cli.command()
 @click.option("--quality", "-q", default=None, help="Tidal quality: low | high | master")
 def auth(quality):
-    """Authenticate with Tidal (saves session for future use)."""
+    """Authenticate with Tidal - saved for future use"""
     _print_banner()
     cfg = Config.load()
     if quality:
         cfg.tidal_quality = _normalize_tidal_quality(quality)
     if not HAS_TIDAL:
-        console.print("[error]tidalapi is not installed.[/error]")
+        console.print("[error]tidalapi is not installed - please install it using 'pip install tidalapi'[/error]")
         sys.exit(1)
     TidalClient(cfg)
-    console.print("[success]Tidal session ready.[/success]")
+    console.print("[success]Tidal session ready - Enjoy! :3[/success]")
 
 
 @cli.command()
@@ -2058,7 +2054,7 @@ def auth(quality):
 @click.option("--genre", default="", help="Genre")
 @click.option("--cover-url", default="", help="Cover art image URL")
 def meta(file_path, title, artist, album, track_number, year, genre, cover_url):
-    """Append metadata to an existing audio file."""
+    """Used to append metadata to an existing audio file."""
     _print_banner()
     path = Path(file_path).expanduser()
     if not path.exists() or not path.is_file():
@@ -2189,7 +2185,7 @@ def info():
 
 def _print_banner():
     console.print(Panel(
-        "[bold cyan]NovaReap[/bold cyan]  [muted]master-quality music sync[/muted]",
+        "[bold cyan]NovaReap[/bold cyan] [dim]by[/dim] [blue]Malo Interactive[/blue] - [muted]https://github.com/Sanedish/novareap [/muted]",
         border_style="dim",
         padding=(0, 2),
     ))

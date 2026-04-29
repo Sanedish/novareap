@@ -1,30 +1,60 @@
-# 🎧 NovaReap
+# NovaReap by `Sanedish`
 
-> High-quality, multi-source music downloader with smart fallbacks and clean metadata.
+> NovaReap - Simple, compact, excellence. 
 
-NovaReap is a **single-file CLI tool** that downloads music from **Tidal**, resolves **Spotify links**, scrapes **Apple Music**, and falls back to **YouTube audio** when needed — all while embedding metadata and cover art automatically.
+NovaReap is a **highly robust, pip-installable CLI tool** that downloads music from **Tidal**, resolves **Spotify links**, scrapes **Apple Music**, and utilizes **YouTube audio** as fallback when needed — all while extensively embedding metadata and cover art, **fully** autmatically.
 
 ---
 
-## ✨ Features
+## Features
 
 - 🎵 Direct **Tidal downloads** (tracks, albums, playlists)
 - 🔗 **Spotify URL support** (metadata + smart fallback matching)
-- 🍎 **Apple Music scraping**
-- ▶️ **YouTube fallback** via `yt-dlp`
-- 🏷️ Automatic **metadata + cover art embedding** (`mutagen`)
+- 🍏 **Apple Music scraping**
+- ▶️ **YouTube / Spotify fallback** via `yt-dlp` & `spotipy`
+- 🏷️ **FULL** & Automatic **metadata + cover art embedding** through `mutagen`
 - ⚡ **Concurrent downloads** with progress UI (`rich`)
-- ♻️ Resume-friendly (**skip existing files**)
+- ♻️ User-frienly -- **skip existing files** if existing
 - 🧪 Built-in **setup wizard** and **diagnostics**
 
 ---
 
-## 🚀 Quick Start
 
-### Windows (fresh install)
+## 📥Quick start / Install [pip]
+Simply run:
+```bash
+pip install novareap
+
+novareap doctor 
+novareap setup
+```
+`doctor` checks if dependencies are correctly installed [i.e `mutagen` for metadata].
+`setup` is.. well.. setup.. it will prompt you to configure the tool and log in using tidal to authorize tidalapi.
+
+---
+
+
+## 📦 Raw Setup Requirements:
+
+```txt
+Python 3.13
+
+click>=8.3.2,<9
+requests>=2.33.1,<3
+beautifulsoup4>=4.14.3,<5
+rich>=15.0.0,<16
+mutagen>=1.47.0,<2
+spotipy>=2.26.0,<3
+tidalapi>=0.8.11,<0.9
+yt-dlp[default]>=2026.2.4
+```
+
+---
+
+## [Windows] Base Setup:
 
 ```powershell
-winget install Python.Python.3.12
+winget install Python.Python.3.13
 winget install Gyan.FFmpeg
 ```
 
@@ -37,92 +67,107 @@ ffmpeg -version
 
 ---
 
-### Install NovaReap
+### Raw-install NovaReap [git]
 
 ```powershell
-git clone https://github.com/<your-username>/novareap.git
+git clone https://github.com/Sanedish/novareap.git
 cd novareap
 
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+pip install .
 
-python novareap.py setup
-python novareap.py doctor
+novareap doctor
+novareap setup
 ```
 
 ---
 
-## ⚙️ First-Time Setup
+## 📋First-Time Setup
 
 Run:
 
 ```bash
-python novareap.py setup
+novareap setup
+```
+
+Or [raw install]
+```bash
+cd novareap
+python cli.py setup
 ```
 
 This will:
-- Create config + download directory
-- Check dependencies (FFmpeg, yt-dlp, metadata support)
-- Optionally configure Spotify
-- Optionally authenticate Tidal
+- Authenticate Tidal [as mentioned in `Quick Start`]
+- Create config + configure the download directory
+- Sanity-check dependencies (FFmpeg, yt-dlp, metadata support)
+- Optionally configure Spotify for fallback and link resolution
 
 Skip Spotify setup:
 
 ```bash
-python novareap.py setup --skip-spotify
+novareap setup --skip-spotify
 ```
+Or simply leave fields blank to skip.
 
-Authenticate Tidal manually:
+
+Manually authenticate Tidal:
 
 ```bash
-python novareap.py auth
+novareap auth
 ```
 
 ---
 
-## 📥 Usage
+
+## Usage
 
 Download a track, album, or playlist:
 
 ```bash
-python novareap.py download <url>
+novareap download <url>
+```
+raw:
+```bash
+python cli.py download <url>
 ```
 
 Examples:
 
 ```bash
-python novareap.py download https://tidal.com/track/123
-python novareap.py download https://tidal.com/album/123
-python novareap.py download https://open.spotify.com/track/...
-python novareap.py download https://music.apple.com/...
+novareap download https://tidal.com/track/123
+novareap download https://tidal.com/album/123
+novareap download https://open.spotify.com/track/...
+novareap download https://music.apple.com/...
 ```
+same logic applies to raw.
 
-Multiple URLs:
+
+Downloading multiple URLs at once:
 
 ```bash
-python novareap.py download <url1> <url2> <url3>
+novareap download <url1> <url2> <url3>
 ```
 
 ---
 
-## 🧰 Commands
+## 🔧 NovaReap Commads
 
 | Command     | Description |
 |------------|------------|
 | `setup`     | First-time setup wizard |
-| `doctor`    | Diagnose missing dependencies |
+| `doctor`    | Check installed dependencies and highlight missing ones |
 | `info`      | Show config + environment |
 | `configure` | Edit config interactively |
 | `auth`      | Authenticate Tidal |
 | `download`  | Download content |
-| `meta`      | Add metadata to existing files |
+| `meta`      | Manually add metadata to existing files |
 
 ---
 
-## ⚡ Options
+## 📦 Flags
 
 | Option | Default | Description |
 |-------|--------|------------|
@@ -130,24 +175,24 @@ python novareap.py download <url1> <url2> <url3>
 | `-o, --output` | `~/Music/NovaReap` | Output directory |
 | `-c, --concurrent` | `3` | Parallel downloads |
 | `--no-skip` | off | Re-download existing files |
-| `--no-metadata` | off | Disable metadata tagging |
-| `--config` | default path | Custom config file |
+| `--no-metadata` | off - metadata enabled | Disable metadata tagging |
+| `--config` | `~/.config/novareap/config.json`| Custom config file |
 
 ---
 
 ## 🏷️ Metadata
 
-NovaReap automatically embeds:
+NovaReap will automatically embed:
 
-- Title / Artist / Album
-- Track number / Year / Genre
-- Cover art
-- Audio format info (FLAC, bit depth, etc.)
+- **Title / Artist / Album**
+- **Track number / Year / Genre**
+- **Cover art***
+- **Audio format info** (FLAC, bit depth, etc.)
 
-Manual tagging:
+You can however use manual tagging:
 
 ```bash
-python novareap.py meta "path/to/file.flac"
+novareap meta "path/to/file.flac"
 ```
 
 ---
@@ -160,7 +205,7 @@ Default config path:
 ~/.config/novareap/config.json
 ```
 
-Example:
+By default, we save configs as follows:
 
 ```json
 {
@@ -179,30 +224,31 @@ Example:
 
 ## 🔑 Spotify Setup (Optional)
 
-Spotify is used for **metadata only** (not audio downloading).
+Currently, Spotify is used for **metadata only** (not audio downloading).
 
 1. Create an app: https://developer.spotify.com/dashboard  
 2. Copy client ID + secret  
 3. Run:
 
 ```bash
-python novareap.py configure
+novareap configure
 ```
+Enter your credentials - done! :3
 
 ---
 
-## 🧪 Troubleshooting
+## 🔧 Troubleshooting
 
-Run diagnostics:
+Run sanity check:
 
 ```bash
-python novareap.py doctor
+novareap doctor
 ```
 
-Common issues:
+Common issues may be resolved by following the below:
 
 - ❌ `python` not recognized → reinstall with PATH enabled  
-- ❌ `ffmpeg` not found → install + restart terminal  
+- ❌ `ffmpeg` not found → install, add to path, restart terminal  
 - ❌ YouTube fallback fails → update dependencies  
 - ❌ Metadata missing → ensure `mutagen` is installed  
 - ❌ Spotify URLs fail → configure credentials  
@@ -228,6 +274,6 @@ All downloads and metadata operations are executed through **official** APIs pro
 
 ---
 
-## 📜 License
+## License
 
 MIT
