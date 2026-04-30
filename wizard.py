@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-NovaReap First-Time Setup Wizard
+First-time Wizard for the NovaReap system - This script will auto-check and install all required dependencies
 """
 
 import json
